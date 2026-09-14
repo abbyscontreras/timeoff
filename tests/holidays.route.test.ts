@@ -7,7 +7,7 @@ const prismaMock = vi.hoisted(() => ({
   user: { findFirst: vi.fn() },
   chargeCode: { findFirst: vi.fn() },
   holiday: { findMany: vi.fn() },
-  timeEntry: { findMany: vi.fn(), upsert: vi.fn() },
+  timeEntry: { findMany: vi.fn(), create: vi.fn() },
   $transaction: vi.fn()
 }));
 
@@ -47,8 +47,8 @@ describe('holiday autopopulate route', () => {
     const h2 = { name: 'B', date: new Date('2026-01-02') };
     prismaMock.holiday.findMany.mockResolvedValue([h1, h2]);
     prismaMock.timeEntry.findMany.mockResolvedValue([{ entryDate: new Date('2026-01-01') }]);
-    prismaMock.timeEntry.upsert.mockImplementation(async ({ create }: { create: unknown }) => create);
-    prismaMock.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
+    prismaMock.timeEntry.create.mockImplementation(async ({ data }: { data: unknown }) => data);
+    prismaMock.$transaction.mockImplementation(async (fn: (tx: typeof prismaMock) => Promise<unknown>) => fn(prismaMock as unknown as typeof prismaMock));
 
     const response = await request(app()).post('/api/holidays/autopopulate').send({
       userId: 'u1',
@@ -58,6 +58,6 @@ describe('holiday autopopulate route', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(prismaMock.timeEntry.upsert).toHaveBeenCalledTimes(1);
+    expect(prismaMock.timeEntry.create).toHaveBeenCalledTimes(1);
   });
 });

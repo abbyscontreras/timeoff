@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../db.js';
-import { applyAccrualImpact, computeBalance } from '../services/accrual.js';
+import { applyAccrualImpact } from '../services/accrual.js';
 import { dailyEntrySchema, ensureNoDuplicateCodes, validateDailyHours } from '../services/timeValidation.js';
 
 export const timeEntryRouter = Router();
@@ -67,25 +67,31 @@ timeEntryRouter.post('/daily', async (req, res) => {
       if (!code) continue;
 
       const deltas = applyAccrualImpact(split.hoursLogged, code.accrualImpact);
-      const balance = await tx.pTOBalance.upsert({
-        where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: split.chargeCodeId } },
-        update: {
-          earnedYtd: { increment: deltas.earnedDelta },
-          usedYtd: { increment: deltas.usedDelta }
-        },
-        create: {
-          userId: payload.userId,
-          chargeCodeId: split.chargeCodeId,
-          earnedYtd: deltas.earnedDelta,
-          usedYtd: deltas.usedDelta,
-          bankedHours: 0,
-          adjustments: 0,
-          currentBalance: 0
-        }
+      const delta = deltas.earnedDelta - deltas.usedDelta;
+      const balance = await tx.pTOBalance.findUnique({
+        where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: split.chargeCodeId } }
       });
+      if (!balance) {
+        await tx.pTOBalance.create({
+          data: {
+            userId: payload.userId,
+            chargeCodeId: split.chargeCodeId,
+            earnedYtd: deltas.earnedDelta,
+            usedYtd: deltas.usedDelta,
+            bankedHours: 0,
+            adjustments: 0,
+            currentBalance: delta
+          }
+        });
+        continue;
+      }
       await tx.pTOBalance.update({
         where: { id: balance.id },
-        data: { currentBalance: computeBalance(balance) }
+        data: {
+          earnedYtd: { increment: deltas.earnedDelta },
+          usedYtd: { increment: deltas.usedDelta },
+          currentBalance: { increment: delta }
+        }
       });
     }
 
@@ -129,39 +135,54 @@ timeEntryRouter.post('/convert-comp-time', async (req, res) => {
     return;
   }
 
-  const fromBalance = await prisma.pTOBalance.findUnique({
-    where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId } }
-  });
-  if ((fromBalance?.currentBalance ?? 0) < payload.hours) {
-    res.status(400).json({ error: 'Insufficient source balance for comp-time conversion' });
+  try {
+    await prisma.$transaction(async (tx) => {
+      const fromBalance = await tx.pTOBalance.findUnique({
+        where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId } }
+      });
+      if (!fromBalance || fromBalance.currentBalance < payload.hours) {
+        throw new Error('Insufficient source balance for comp-time conversion');
+      }
+
+      await tx.pTOBalance.update({
+        where: { id: fromBalance.id },
+        data: {
+          usedYtd: { increment: payload.hours },
+          currentBalance: { decrement: payload.hours }
+        }
+      });
+
+      const toBalance = await tx.pTOBalance.findUnique({
+        where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId } }
+      });
+
+      if (!toBalance) {
+        await tx.pTOBalance.create({
+          data: {
+            userId: payload.userId,
+            chargeCodeId: payload.toChargeCodeId,
+            usedYtd: 0,
+            earnedYtd: 0,
+            bankedHours: payload.hours,
+            adjustments: 0,
+            currentBalance: payload.hours
+          }
+        });
+        return;
+      }
+
+      await tx.pTOBalance.update({
+        where: { id: toBalance.id },
+        data: {
+          bankedHours: { increment: payload.hours },
+          currentBalance: { increment: payload.hours }
+        }
+      });
+    });
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
     return;
   }
-
-  await prisma.$transaction(async (tx) => {
-    await tx.pTOBalance.upsert({
-      where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId } },
-      update: { usedYtd: { increment: payload.hours } },
-      create: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId, usedYtd: payload.hours, earnedYtd: 0, bankedHours: 0, adjustments: 0, currentBalance: 0 }
-    });
-
-    await tx.pTOBalance.upsert({
-      where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId } },
-      update: { bankedHours: { increment: payload.hours } },
-      create: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId, usedYtd: 0, earnedYtd: 0, bankedHours: payload.hours, adjustments: 0, currentBalance: 0 }
-    });
-
-    const [from, to] = await Promise.all([
-      tx.pTOBalance.findUnique({ where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId } } }),
-      tx.pTOBalance.findUnique({ where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId } } })
-    ]);
-
-    if (from) {
-      await tx.pTOBalance.update({ where: { id: from.id }, data: { currentBalance: computeBalance(from) } });
-    }
-    if (to) {
-      await tx.pTOBalance.update({ where: { id: to.id }, data: { currentBalance: computeBalance(to) } });
-    }
-  });
 
   res.json({ ok: true });
 });

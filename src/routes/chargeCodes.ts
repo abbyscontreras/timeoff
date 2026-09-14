@@ -23,14 +23,24 @@ chargeCodeRouter.get('/', async (req, res) => {
 
 chargeCodeRouter.post('/', async (req, res) => {
   const tenantId = req.tenantId!;
-  const payload = createSchema.parse(req.body);
+  const parsed = createSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const payload = parsed.data;
   const item = await prisma.chargeCode.create({ data: { organizationId: tenantId, ...payload } });
   res.status(201).json(item);
 });
 
 chargeCodeRouter.patch('/:id', async (req, res) => {
   const tenantId = req.tenantId!;
-  const payload = createSchema.partial().parse(req.body);
+  const parsed = createSchema.partial().safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const payload = parsed.data;
   const existing = await prisma.chargeCode.findFirst({ where: { id: req.params.id, organizationId: tenantId } });
   if (!existing) {
     res.status(404).json({ error: 'Charge code not found' });

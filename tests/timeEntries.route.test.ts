@@ -18,6 +18,15 @@ function createApp() {
 }
 
 describe('time entry route validation', () => {
+  it('returns 400 for malformed request body', async () => {
+    const app = createApp();
+    const response = await request(app)
+      .post('/api/time-entries/daily')
+      .send({ userId: 'u1' });
+
+    expect(response.status).toBe(400);
+  });
+
   it('rejects daily entries that exceed max daily hours', async () => {
     const app = createApp();
     const response = await request(app)

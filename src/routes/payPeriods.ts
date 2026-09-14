@@ -20,7 +20,12 @@ payPeriodRouter.get('/', async (req, res) => {
 
 payPeriodRouter.post('/generate', async (req, res) => {
   const tenantId = req.tenantId!;
-  const payload = generateSchema.parse(req.body);
+  const parsed = generateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const payload = parsed.data;
   const paySchedule = await prisma.paySchedule.findFirst({
     where: { id: payload.payScheduleId, organizationId: tenantId }
   });

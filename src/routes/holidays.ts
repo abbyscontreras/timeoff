@@ -19,14 +19,24 @@ holidayRouter.get('/', async (req, res) => {
 
 holidayRouter.post('/', async (req, res) => {
   const tenantId = req.tenantId!;
-  const payload = holidaySchema.parse(req.body);
+  const parsed = holidaySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const payload = parsed.data;
   const holiday = await prisma.holiday.create({ data: { organizationId: tenantId, ...payload } });
   res.status(201).json(holiday);
 });
 
 holidayRouter.post('/autopopulate', async (req, res) => {
   const tenantId = req.tenantId!;
-  const payload = z.object({ userId: z.string(), payPeriodId: z.string(), holidayChargeCodeId: z.string(), defaultHours: z.number().positive().default(8) }).parse(req.body);
+  const parsed = z.object({ userId: z.string(), payPeriodId: z.string(), holidayChargeCodeId: z.string(), defaultHours: z.number().positive().default(8) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const payload = parsed.data;
 
   const payPeriod = await prisma.payPeriod.findFirst({ where: { id: payload.payPeriodId, organizationId: tenantId } });
   if (!payPeriod) {
@@ -62,27 +72,29 @@ holidayRouter.post('/autopopulate', async (req, res) => {
   const existingDateSet = new Set(existingEntries.map((entry) => entry.entryDate.toISOString().slice(0, 10)));
   const missingHolidays = holidays.filter((h) => !existingDateSet.has(h.date.toISOString().slice(0, 10)));
 
-  const entries = await prisma.$transaction(missingHolidays.map((h) => prisma.timeEntry.upsert({
-    where: {
-      userId_payPeriodId_entryDate_chargeCodeId: {
-        userId: payload.userId,
-        payPeriodId: payload.payPeriodId,
-        entryDate: h.date,
-        chargeCodeId: payload.holidayChargeCodeId
+  const entries = await prisma.$transaction(async (tx) => {
+    const created: unknown[] = [];
+    for (const holiday of missingHolidays) {
+      try {
+        const entry = await tx.timeEntry.create({
+          data: {
+            userId: payload.userId,
+            payPeriodId: payload.payPeriodId,
+            chargeCodeId: payload.holidayChargeCodeId,
+            entryDate: holiday.date,
+            hoursLogged: payload.defaultHours,
+            notes: `Auto-populated holiday: ${holiday.name}`
+          }
+        });
+        created.push(entry);
+      } catch (error) {
+        if ((error as { code?: string }).code !== 'P2002') {
+          throw error;
+        }
       }
-    },
-    update: {
-      notes: `Auto-populated holiday: ${h.name}`
-    },
-    create: {
-      userId: payload.userId,
-      payPeriodId: payload.payPeriodId,
-      chargeCodeId: payload.holidayChargeCodeId,
-      entryDate: h.date,
-      hoursLogged: payload.defaultHours,
-      notes: `Auto-populated holiday: ${h.name}`
     }
-  })));
+    return created;
+  });
 
   res.json(entries);
 });

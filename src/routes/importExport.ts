@@ -25,7 +25,12 @@ function parseBoolean(value: unknown, fallback = false): boolean {
 
 importExportRouter.post('/import', async (req, res) => {
   const tenantId = req.tenantId!;
-  const payload = importSchema.parse(req.body);
+  const parsed = importSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const payload = parsed.data;
   const buffer = Buffer.from(payload.fileBase64, 'base64');
 
   let rows: Record<string, unknown>[] = [];
