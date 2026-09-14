@@ -47,7 +47,20 @@ importExportRouter.post('/import', async (req, res) => {
       };
     });
     if (data.length > 0) {
-      await prisma.holiday.createMany({ data });
+      await prisma.$transaction(data.map((item) => prisma.holiday.upsert({
+        where: {
+          organizationId_name_date: {
+            organizationId: item.organizationId,
+            name: item.name,
+            date: item.date
+          }
+        },
+        update: {
+          year: item.year,
+          isFloating: item.isFloating
+        },
+        create: item
+      })));
     }
   }
 
@@ -62,21 +75,39 @@ importExportRouter.post('/import', async (req, res) => {
       isActive: parseBoolean(row.active_status ?? row.isActive, true)
     }));
     if (data.length > 0) {
-      await prisma.chargeCode.createMany({ data });
+      await prisma.$transaction(data.map((item) => prisma.chargeCode.upsert({
+        where: {
+          organizationId_codeKey: {
+            organizationId: item.organizationId,
+            codeKey: item.codeKey
+          }
+        },
+        update: {
+          displayName: item.displayName,
+          category: item.category,
+          isPaid: item.isPaid,
+          accrualImpact: item.accrualImpact,
+          isActive: item.isActive
+        },
+        create: item
+      })));
     }
   }
 
   if (payload.type === 'balances') {
+    const userIds = Array.from(new Set(rows.map((row) => String(row.user_id ?? row.userId))));
+    const chargeCodeIds = Array.from(new Set(rows.map((row) => String(row.charge_code_id ?? row.chargeCodeId))));
+    const [users, chargeCodes] = await Promise.all([
+      prisma.user.findMany({ where: { id: { in: userIds }, organizationId: tenantId }, select: { id: true } }),
+      prisma.chargeCode.findMany({ where: { id: { in: chargeCodeIds }, organizationId: tenantId }, select: { id: true } })
+    ]);
+    const allowedUsers = new Set(users.map((user) => user.id));
+    const allowedChargeCodes = new Set(chargeCodes.map((code) => code.id));
+
     for (const row of rows) {
       const userId = String(row.user_id ?? row.userId);
       const chargeCodeId = String(row.charge_code_id ?? row.chargeCodeId);
-
-      const [user, chargeCode] = await Promise.all([
-        prisma.user.findFirst({ where: { id: userId, organizationId: tenantId }, select: { id: true } }),
-        prisma.chargeCode.findFirst({ where: { id: chargeCodeId, organizationId: tenantId }, select: { id: true } })
-      ]);
-
-      if (!user || !chargeCode) {
+      if (!allowedUsers.has(userId) || !allowedChargeCodes.has(chargeCodeId)) {
         res.status(400).json({ error: 'Balance import contains cross-tenant or invalid references' });
         return;
       }

@@ -7,11 +7,21 @@ export const timeEntryRouter = Router();
 
 timeEntryRouter.post('/daily', async (req, res) => {
   const tenantId = req.tenantId!;
-  const payload = dailyEntrySchema.parse(req.body);
-  const totalHours = payload.splits.reduce((sum, split) => sum + split.hoursLogged, 0);
+  const parsed = dailyEntrySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const payload = parsed.data;
 
-  validateDailyHours(totalHours, payload.maxDailyHours);
-  ensureNoDuplicateCodes(payload.splits.map((split) => split.chargeCodeId));
+  try {
+    const totalHours = payload.splits.reduce((sum, split) => sum + split.hoursLogged, 0);
+    validateDailyHours(totalHours, payload.maxDailyHours);
+    ensureNoDuplicateCodes(payload.splits.map((split) => split.chargeCodeId));
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+    return;
+  }
 
   const payPeriod = await prisma.payPeriod.findFirst({ where: { id: payload.payPeriodId, organizationId: tenantId } });
   if (!payPeriod) {
@@ -33,10 +43,12 @@ timeEntryRouter.post('/daily', async (req, res) => {
   const chargeCodes = await prisma.chargeCode.findMany({
     where: { id: { in: payload.splits.map((split) => split.chargeCodeId) }, organizationId: tenantId }
   });
-  if (chargeCodes.length !== payload.splits.length) {
+  const uniqueChargeCodeIds = new Set(payload.splits.map((split) => split.chargeCodeId));
+  if (chargeCodes.length !== uniqueChargeCodeIds.size) {
     res.status(400).json({ error: 'One or more charge codes are invalid for tenant' });
     return;
   }
+  const chargeCodeById = new Map(chargeCodes.map((code) => [code.id, code]));
 
   const created = await prisma.$transaction(async (tx) => {
     const entries = await Promise.all(payload.splits.map((split) => tx.timeEntry.create({
@@ -51,11 +63,11 @@ timeEntryRouter.post('/daily', async (req, res) => {
     })));
 
     for (const split of payload.splits) {
-      const code = chargeCodes.find((item) => item.id === split.chargeCodeId);
+      const code = chargeCodeById.get(split.chargeCodeId);
       if (!code) continue;
 
       const deltas = applyAccrualImpact(split.hoursLogged, code.accrualImpact);
-      await tx.pTOBalance.upsert({
+      const balance = await tx.pTOBalance.upsert({
         where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: split.chargeCodeId } },
         update: {
           earnedYtd: { increment: deltas.earnedDelta },
@@ -71,15 +83,9 @@ timeEntryRouter.post('/daily', async (req, res) => {
           currentBalance: 0
         }
       });
-
-      const updated = await tx.pTOBalance.findUnique({
-        where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: split.chargeCodeId } }
-      });
-      if (!updated) continue;
-
       await tx.pTOBalance.update({
-        where: { id: updated.id },
-        data: { currentBalance: computeBalance(updated) }
+        where: { id: balance.id },
+        data: { currentBalance: computeBalance(balance) }
       });
     }
 
@@ -97,7 +103,12 @@ const compSchema = dailyEntrySchema.pick({ userId: true }).extend({
 
 timeEntryRouter.post('/convert-comp-time', async (req, res) => {
   const tenantId = req.tenantId!;
-  const payload = compSchema.parse(req.body);
+  const parsed = compSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const payload = parsed.data;
 
   const user = await prisma.user.findFirst({ where: { id: payload.userId, organizationId: tenantId } });
   if (!user) {
@@ -115,6 +126,14 @@ timeEntryRouter.post('/convert-comp-time', async (req, res) => {
 
   if (payload.fromChargeCodeId === payload.toChargeCodeId) {
     res.status(400).json({ error: 'Source and destination charge codes must be different' });
+    return;
+  }
+
+  const fromBalance = await prisma.pTOBalance.findUnique({
+    where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId } }
+  });
+  if ((fromBalance?.currentBalance ?? 0) < payload.hours) {
+    res.status(400).json({ error: 'Insufficient source balance for comp-time conversion' });
     return;
   }
 

@@ -30,7 +30,7 @@ describe('time entry route validation', () => {
         splits: [{ chargeCodeId: 'c1', hoursLogged: 9 }]
       });
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(400);
     expect(response.body.error).toContain('Maximum daily hours exceeded');
   });
 
@@ -49,7 +49,7 @@ describe('time entry route validation', () => {
         ]
       });
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(400);
     expect(response.body.error).toContain('Duplicate charge code splits');
   });
 });

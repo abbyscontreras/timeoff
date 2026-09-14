@@ -158,6 +158,7 @@ model TimeEntry {
   updatedAt    DateTime   @updatedAt
 
   @@index([userId, entryDate])
+  @@unique([userId, payPeriodId, entryDate, chargeCodeId])
 }
 
 model PTOBalance {
