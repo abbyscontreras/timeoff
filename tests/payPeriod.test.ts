@@ -18,4 +18,12 @@ describe('pay period generator', () => {
     expect(periods[1].startDate.toISOString().slice(0, 10)).toBe('2026-02-16');
     expect(periods[1].endDate.toISOString().slice(0, 10)).toBe('2026-02-28');
   });
+
+  it('generates semi-monthly ranges from second-half anchor', () => {
+    const periods = generatePayPeriods(Cadence.SEMI_MONTHLY, new Date('2026-02-20T00:00:00.000Z'), 2);
+    expect(periods[0].startDate.toISOString().slice(0, 10)).toBe('2026-02-16');
+    expect(periods[0].endDate.toISOString().slice(0, 10)).toBe('2026-02-28');
+    expect(periods[1].startDate.toISOString().slice(0, 10)).toBe('2026-03-01');
+    expect(periods[1].endDate.toISOString().slice(0, 10)).toBe('2026-03-15');
+  });
 });

@@ -38,44 +38,52 @@ timeEntryRouter.post('/daily', async (req, res) => {
     return;
   }
 
-  const created = await prisma.$transaction(payload.splits.map((split) => prisma.timeEntry.create({
-    data: {
-      userId: payload.userId,
-      payPeriodId: payload.payPeriodId,
-      entryDate: payload.entryDate,
-      chargeCodeId: split.chargeCodeId,
-      hoursLogged: split.hoursLogged,
-      notes: split.notes
-    }
-  })));
-
-  for (const split of payload.splits) {
-    const code = chargeCodes.find((item) => item.id === split.chargeCodeId);
-    if (!code) continue;
-
-    const deltas = applyAccrualImpact(split.hoursLogged, code.accrualImpact);
-    const balance = await prisma.pTOBalance.upsert({
-      where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: split.chargeCodeId } },
-      update: {
-        earnedYtd: { increment: deltas.earnedDelta },
-        usedYtd: { increment: deltas.usedDelta }
-      },
-      create: {
+  const created = await prisma.$transaction(async (tx) => {
+    const entries = await Promise.all(payload.splits.map((split) => tx.timeEntry.create({
+      data: {
         userId: payload.userId,
+        payPeriodId: payload.payPeriodId,
+        entryDate: payload.entryDate,
         chargeCodeId: split.chargeCodeId,
-        earnedYtd: deltas.earnedDelta,
-        usedYtd: deltas.usedDelta,
-        bankedHours: 0,
-        currentBalance: 0
+        hoursLogged: split.hoursLogged,
+        notes: split.notes
       }
-    });
+    })));
 
-    const currentBalance = computeBalance(balance);
-    await prisma.pTOBalance.update({
-      where: { id: balance.id },
-      data: { currentBalance }
-    });
-  }
+    for (const split of payload.splits) {
+      const code = chargeCodes.find((item) => item.id === split.chargeCodeId);
+      if (!code) continue;
+
+      const deltas = applyAccrualImpact(split.hoursLogged, code.accrualImpact);
+      await tx.pTOBalance.upsert({
+        where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: split.chargeCodeId } },
+        update: {
+          earnedYtd: { increment: deltas.earnedDelta },
+          usedYtd: { increment: deltas.usedDelta }
+        },
+        create: {
+          userId: payload.userId,
+          chargeCodeId: split.chargeCodeId,
+          earnedYtd: deltas.earnedDelta,
+          usedYtd: deltas.usedDelta,
+          bankedHours: 0,
+          currentBalance: 0
+        }
+      });
+
+      const updated = await tx.pTOBalance.findUnique({
+        where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: split.chargeCodeId } }
+      });
+      if (!updated) continue;
+
+      await tx.pTOBalance.update({
+        where: { id: updated.id },
+        data: { currentBalance: computeBalance(updated) }
+      });
+    }
+
+    return entries;
+  });
 
   res.status(201).json(created);
 });
@@ -104,20 +112,36 @@ timeEntryRouter.post('/convert-comp-time', async (req, res) => {
     return;
   }
 
-  const from = await prisma.pTOBalance.upsert({
-    where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId } },
-    update: { usedYtd: { increment: payload.hours } },
-    create: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId, usedYtd: payload.hours, earnedYtd: 0, bankedHours: 0, currentBalance: 0 }
-  });
+  if (payload.fromChargeCodeId === payload.toChargeCodeId) {
+    res.status(400).json({ error: 'Source and destination charge codes must be different' });
+    return;
+  }
 
-  const to = await prisma.pTOBalance.upsert({
-    where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId } },
-    update: { bankedHours: { increment: payload.hours } },
-    create: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId, usedYtd: 0, earnedYtd: 0, bankedHours: payload.hours, currentBalance: 0 }
-  });
+  await prisma.$transaction(async (tx) => {
+    await tx.pTOBalance.upsert({
+      where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId } },
+      update: { usedYtd: { increment: payload.hours } },
+      create: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId, usedYtd: payload.hours, earnedYtd: 0, bankedHours: 0, currentBalance: 0 }
+    });
 
-  await prisma.pTOBalance.update({ where: { id: from.id }, data: { currentBalance: computeBalance(from) } });
-  await prisma.pTOBalance.update({ where: { id: to.id }, data: { currentBalance: computeBalance(to) } });
+    await tx.pTOBalance.upsert({
+      where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId } },
+      update: { bankedHours: { increment: payload.hours } },
+      create: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId, usedYtd: 0, earnedYtd: 0, bankedHours: payload.hours, currentBalance: 0 }
+    });
+
+    const [from, to] = await Promise.all([
+      tx.pTOBalance.findUnique({ where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId } } }),
+      tx.pTOBalance.findUnique({ where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId } } })
+    ]);
+
+    if (from) {
+      await tx.pTOBalance.update({ where: { id: from.id }, data: { currentBalance: computeBalance(from) } });
+    }
+    if (to) {
+      await tx.pTOBalance.update({ where: { id: to.id }, data: { currentBalance: computeBalance(to) } });
+    }
+  });
 
   res.json({ ok: true });
 });

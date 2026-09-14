@@ -1,4 +1,4 @@
-import { Cadence, PayPeriodStatus } from '@prisma/client';
+import { PayPeriodStatus } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
@@ -6,8 +6,7 @@ import { generatePayPeriods } from '../services/payPeriod.js';
 
 const generateSchema = z.object({
   payScheduleId: z.string(),
-  cadence: z.nativeEnum(Cadence),
-  anchorDate: z.coerce.date(),
+  anchorDate: z.coerce.date().optional(),
   count: z.number().int().min(1).max(52)
 });
 
@@ -22,8 +21,15 @@ payPeriodRouter.get('/', async (req, res) => {
 payPeriodRouter.post('/generate', async (req, res) => {
   const tenantId = req.tenantId!;
   const payload = generateSchema.parse(req.body);
+  const paySchedule = await prisma.paySchedule.findFirst({
+    where: { id: payload.payScheduleId, organizationId: tenantId }
+  });
+  if (!paySchedule) {
+    res.status(404).json({ error: 'Pay schedule not found for tenant' });
+    return;
+  }
 
-  const generated = generatePayPeriods(payload.cadence, payload.anchorDate, payload.count);
+  const generated = generatePayPeriods(paySchedule.cadence, payload.anchorDate ?? paySchedule.anchorDate, payload.count);
 
   const created = await prisma.$transaction(generated.map((period) => prisma.payPeriod.upsert({
     where: {
@@ -37,7 +43,7 @@ payPeriodRouter.post('/generate', async (req, res) => {
     update: {},
     create: {
       organizationId: tenantId,
-      payScheduleId: payload.payScheduleId,
+      payScheduleId: paySchedule.id,
       startDate: period.startDate,
       endDate: period.endDate,
       status: PayPeriodStatus.DRAFT
@@ -63,7 +69,7 @@ payPeriodRouter.get('/:id/summary', async (req, res) => {
   });
 
   const chargeCodes = await prisma.chargeCode.findMany({
-    where: { id: { in: grouped.map((g) => g.chargeCodeId) } }
+    where: { organizationId: tenantId, id: { in: grouped.map((g) => g.chargeCodeId) } }
   });
 
   const worked = grouped.reduce((sum, g) => {

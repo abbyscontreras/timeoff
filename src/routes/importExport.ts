@@ -12,6 +12,17 @@ const importSchema = z.object({
   fileBase64: z.string().min(1)
 });
 
+function parseBoolean(value: unknown, fallback = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', ''].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
 importExportRouter.post('/import', async (req, res) => {
   const tenantId = req.tenantId!;
   const payload = importSchema.parse(req.body);
@@ -32,7 +43,7 @@ importExportRouter.post('/import', async (req, res) => {
           name: String(row.name ?? row.Name ?? ''),
           date: new Date(String(row.date ?? row.Date)),
           year: Number(row.year ?? row.Year ?? new Date(String(row.date ?? row.Date)).getFullYear()),
-          isFloating: Boolean(row.is_floating ?? row.isFloating ?? false)
+          isFloating: parseBoolean(row.is_floating ?? row.isFloating, false)
         }
       });
     }
@@ -46,9 +57,9 @@ importExportRouter.post('/import', async (req, res) => {
           codeKey: String(row.code_key ?? row.codeKey),
           displayName: String(row.display_name ?? row.displayName),
           category: String(row.category ?? 'WORKED') as 'WORKED' | 'USED' | 'EARNED' | 'ADJUSTMENT',
-          isPaid: Boolean(row.is_paid ?? row.isPaid ?? true),
+          isPaid: parseBoolean(row.is_paid ?? row.isPaid, true),
           accrualImpact: String(row.accrual_impact ?? row.accrualImpact ?? 'NEUTRAL') as 'ADDS' | 'SUBTRACTS' | 'NEUTRAL',
-          isActive: Boolean(row.active_status ?? row.isActive ?? true)
+          isActive: parseBoolean(row.active_status ?? row.isActive, true)
         }
       });
     }
@@ -56,11 +67,24 @@ importExportRouter.post('/import', async (req, res) => {
 
   if (payload.type === 'balances') {
     for (const row of rows) {
+      const userId = String(row.user_id ?? row.userId);
+      const chargeCodeId = String(row.charge_code_id ?? row.chargeCodeId);
+
+      const [user, chargeCode] = await Promise.all([
+        prisma.user.findFirst({ where: { id: userId, organizationId: tenantId }, select: { id: true } }),
+        prisma.chargeCode.findFirst({ where: { id: chargeCodeId, organizationId: tenantId }, select: { id: true } })
+      ]);
+
+      if (!user || !chargeCode) {
+        res.status(400).json({ error: 'Balance import contains cross-tenant or invalid references' });
+        return;
+      }
+
       await prisma.pTOBalance.upsert({
         where: {
           userId_chargeCodeId: {
-            userId: String(row.user_id ?? row.userId),
-            chargeCodeId: String(row.charge_code_id ?? row.chargeCodeId)
+            userId,
+            chargeCodeId
           }
         },
         update: {
@@ -70,8 +94,8 @@ importExportRouter.post('/import', async (req, res) => {
           currentBalance: Number(row.current_balance ?? row.currentBalance ?? 0)
         },
         create: {
-          userId: String(row.user_id ?? row.userId),
-          chargeCodeId: String(row.charge_code_id ?? row.chargeCodeId),
+          userId,
+          chargeCodeId,
           earnedYtd: Number(row.earned_ytd ?? row.earnedYtd ?? 0),
           usedYtd: Number(row.used_ytd ?? row.usedYtd ?? 0),
           bankedHours: Number(row.banked_hours ?? row.bankedHours ?? 0),

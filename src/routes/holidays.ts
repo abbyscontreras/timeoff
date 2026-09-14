@@ -34,6 +34,15 @@ holidayRouter.post('/autopopulate', async (req, res) => {
     return;
   }
 
+  const [user, chargeCode] = await Promise.all([
+    prisma.user.findFirst({ where: { id: payload.userId, organizationId: tenantId }, select: { id: true } }),
+    prisma.chargeCode.findFirst({ where: { id: payload.holidayChargeCodeId, organizationId: tenantId }, select: { id: true } })
+  ]);
+  if (!user || !chargeCode) {
+    res.status(400).json({ error: 'User or holiday charge code is invalid for tenant' });
+    return;
+  }
+
   const holidays = await prisma.holiday.findMany({
     where: {
       organizationId: tenantId,
