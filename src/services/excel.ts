@@ -22,12 +22,12 @@ export async function buildPayrollWorkbook(rows: ExportRow[]): Promise<Buffer> {
 
   rows.forEach((row) => worksheet.addRow(row));
   const data = await workbook.xlsx.writeBuffer();
-  return Buffer.isBuffer(data) ? data : Buffer.from(data);
+  return Buffer.from(data as ArrayBuffer);
 }
 
 export async function parseWorkbook(buffer: Buffer): Promise<Record<string, unknown>[]> {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
   const sheet = workbook.worksheets[0];
   if (!sheet) return [];
 
