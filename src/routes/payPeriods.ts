@@ -36,24 +36,31 @@ payPeriodRouter.post('/generate', async (req, res) => {
 
   const generated = generatePayPeriods(paySchedule.cadence, payload.anchorDate ?? paySchedule.anchorDate, payload.count);
 
-  const created = await prisma.$transaction(generated.map((period) => prisma.payPeriod.upsert({
-    where: {
-      organizationId_payScheduleId_startDate_endDate: {
+  const created = await prisma.$transaction(async (tx) => {
+    const items = [];
+    for (const period of generated) {
+      const item = await tx.payPeriod.upsert({
+      where: {
+        organizationId_payScheduleId_startDate_endDate: {
+          organizationId: tenantId,
+          payScheduleId: paySchedule.id,
+          startDate: period.startDate,
+          endDate: period.endDate
+        }
+      },
+      update: {},
+      create: {
         organizationId: tenantId,
-        payScheduleId: payload.payScheduleId,
+        payScheduleId: paySchedule.id,
         startDate: period.startDate,
-        endDate: period.endDate
+        endDate: period.endDate,
+        status: PayPeriodStatus.DRAFT
       }
-    },
-    update: {},
-    create: {
-      organizationId: tenantId,
-      payScheduleId: paySchedule.id,
-      startDate: period.startDate,
-      endDate: period.endDate,
-      status: PayPeriodStatus.DRAFT
+      });
+      items.push(item);
     }
-  })));
+    return items;
+  });
 
   res.status(201).json(created);
 });

@@ -75,23 +75,26 @@ holidayRouter.post('/autopopulate', async (req, res) => {
   const entries = await prisma.$transaction(async (tx) => {
     const created: unknown[] = [];
     for (const holiday of missingHolidays) {
-      try {
-        const entry = await tx.timeEntry.create({
-          data: {
+      const entry = await tx.timeEntry.upsert({
+        where: {
+          userId_payPeriodId_entryDate_chargeCodeId: {
             userId: payload.userId,
             payPeriodId: payload.payPeriodId,
-            chargeCodeId: payload.holidayChargeCodeId,
             entryDate: holiday.date,
-            hoursLogged: payload.defaultHours,
-            notes: `Auto-populated holiday: ${holiday.name}`
+            chargeCodeId: payload.holidayChargeCodeId
           }
-        });
-        created.push(entry);
-      } catch (error) {
-        if ((error as { code?: string }).code !== 'P2002') {
-          throw error;
+        },
+        update: {},
+        create: {
+          userId: payload.userId,
+          payPeriodId: payload.payPeriodId,
+          chargeCodeId: payload.holidayChargeCodeId,
+          entryDate: holiday.date,
+          hoursLogged: payload.defaultHours,
+          notes: `Auto-populated holiday: ${holiday.name}`
         }
-      }
+      });
+      created.push(entry);
     }
     return created;
   });

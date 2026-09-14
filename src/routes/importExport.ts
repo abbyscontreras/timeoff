@@ -128,6 +128,7 @@ importExportRouter.post('/import', async (req, res) => {
           earnedYtd: Number(row.earned_ytd ?? row.earnedYtd ?? 0),
           usedYtd: Number(row.used_ytd ?? row.usedYtd ?? 0),
           bankedHours: Number(row.banked_hours ?? row.bankedHours ?? 0),
+          adjustments: Number(row.adjustments ?? 0),
           currentBalance: Number(row.current_balance ?? row.currentBalance ?? 0)
         },
         create: {
@@ -136,6 +137,7 @@ importExportRouter.post('/import', async (req, res) => {
           earnedYtd: Number(row.earned_ytd ?? row.earnedYtd ?? 0),
           usedYtd: Number(row.used_ytd ?? row.usedYtd ?? 0),
           bankedHours: Number(row.banked_hours ?? row.bankedHours ?? 0),
+          adjustments: Number(row.adjustments ?? 0),
           currentBalance: Number(row.current_balance ?? row.currentBalance ?? 0)
         }
       });

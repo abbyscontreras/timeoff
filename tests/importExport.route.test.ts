@@ -61,4 +61,20 @@ describe('import/export route', () => {
     expect(response.status).toBe(400);
     expect(response.body.error).toContain('cross-tenant');
   });
+
+  it('imports balances when references are tenant-valid', async () => {
+    prismaMock.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+    prismaMock.chargeCode.findMany.mockResolvedValue([{ id: 'c1' }]);
+    prismaMock.pTOBalance.upsert.mockResolvedValue({});
+
+    const csv = 'user_id,charge_code_id,earned_ytd,used_ytd,banked_hours,adjustments,current_balance\nu1,c1,5,1,2,0,6';
+    const response = await request(app()).post('/api/data/import').send({
+      type: 'balances',
+      format: 'csv',
+      fileBase64: Buffer.from(csv, 'utf8').toString('base64')
+    });
+
+    expect(response.status).toBe(200);
+    expect(prismaMock.pTOBalance.upsert).toHaveBeenCalledTimes(1);
+  });
 });

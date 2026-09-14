@@ -68,29 +68,21 @@ timeEntryRouter.post('/daily', async (req, res) => {
 
       const deltas = applyAccrualImpact(split.hoursLogged, code.accrualImpact);
       const delta = deltas.earnedDelta - deltas.usedDelta;
-      const balance = await tx.pTOBalance.findUnique({
-        where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: split.chargeCodeId } }
-      });
-      if (!balance) {
-        await tx.pTOBalance.create({
-          data: {
-            userId: payload.userId,
-            chargeCodeId: split.chargeCodeId,
-            earnedYtd: deltas.earnedDelta,
-            usedYtd: deltas.usedDelta,
-            bankedHours: 0,
-            adjustments: 0,
-            currentBalance: delta
-          }
-        });
-        continue;
-      }
-      await tx.pTOBalance.update({
-        where: { id: balance.id },
-        data: {
+      await tx.pTOBalance.upsert({
+        where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: split.chargeCodeId } },
+        update: {
           earnedYtd: { increment: deltas.earnedDelta },
           usedYtd: { increment: deltas.usedDelta },
           currentBalance: { increment: delta }
+        },
+        create: {
+          userId: payload.userId,
+          chargeCodeId: split.chargeCodeId,
+          earnedYtd: deltas.earnedDelta,
+          usedYtd: deltas.usedDelta,
+          bankedHours: 0,
+          adjustments: 0,
+          currentBalance: delta
         }
       });
     }

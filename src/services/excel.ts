@@ -39,7 +39,7 @@ export async function parseWorkbook(buffer: Buffer): Promise<Record<string, unkn
     const item: Record<string, unknown> = {};
     headers.forEach((header, i) => {
       if (!header) return;
-      item[header] = row.getCell(i + 1).value as unknown;
+      item[header] = row.getCell(i + 2).value as unknown;
     });
     parsed.push(item);
   });
