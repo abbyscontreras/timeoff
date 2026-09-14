@@ -36,32 +36,33 @@ importExportRouter.post('/import', async (req, res) => {
   }
 
   if (payload.type === 'holidays') {
-    for (const row of rows) {
-      await prisma.holiday.create({
-        data: {
-          organizationId: tenantId,
-          name: String(row.name ?? row.Name ?? ''),
-          date: new Date(String(row.date ?? row.Date)),
-          year: Number(row.year ?? row.Year ?? new Date(String(row.date ?? row.Date)).getFullYear()),
-          isFloating: parseBoolean(row.is_floating ?? row.isFloating, false)
-        }
-      });
+    const data = rows.map((row) => {
+      const date = new Date(String(row.date ?? row.Date));
+      return {
+        organizationId: tenantId,
+        name: String(row.name ?? row.Name ?? ''),
+        date,
+        year: Number(row.year ?? row.Year ?? date.getFullYear()),
+        isFloating: parseBoolean(row.is_floating ?? row.isFloating, false)
+      };
+    });
+    if (data.length > 0) {
+      await prisma.holiday.createMany({ data });
     }
   }
 
   if (payload.type === 'charge_codes') {
-    for (const row of rows) {
-      await prisma.chargeCode.create({
-        data: {
-          organizationId: tenantId,
-          codeKey: String(row.code_key ?? row.codeKey),
-          displayName: String(row.display_name ?? row.displayName),
-          category: String(row.category ?? 'WORKED') as 'WORKED' | 'USED' | 'EARNED' | 'ADJUSTMENT',
-          isPaid: parseBoolean(row.is_paid ?? row.isPaid, true),
-          accrualImpact: String(row.accrual_impact ?? row.accrualImpact ?? 'NEUTRAL') as 'ADDS' | 'SUBTRACTS' | 'NEUTRAL',
-          isActive: parseBoolean(row.active_status ?? row.isActive, true)
-        }
-      });
+    const data = rows.map((row) => ({
+      organizationId: tenantId,
+      codeKey: String(row.code_key ?? row.codeKey),
+      displayName: String(row.display_name ?? row.displayName),
+      category: String(row.category ?? 'WORKED') as 'WORKED' | 'USED' | 'EARNED' | 'ADJUSTMENT',
+      isPaid: parseBoolean(row.is_paid ?? row.isPaid, true),
+      accrualImpact: String(row.accrual_impact ?? row.accrualImpact ?? 'NEUTRAL') as 'ADDS' | 'SUBTRACTS' | 'NEUTRAL',
+      isActive: parseBoolean(row.active_status ?? row.isActive, true)
+    }));
+    if (data.length > 0) {
+      await prisma.chargeCode.createMany({ data });
     }
   }
 

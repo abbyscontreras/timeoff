@@ -50,7 +50,19 @@ holidayRouter.post('/autopopulate', async (req, res) => {
     }
   });
 
-  const entries = await prisma.$transaction(holidays.map((h) => prisma.timeEntry.create({
+  const existingEntries = await prisma.timeEntry.findMany({
+    where: {
+      userId: payload.userId,
+      payPeriodId: payload.payPeriodId,
+      chargeCodeId: payload.holidayChargeCodeId,
+      entryDate: { in: holidays.map((h) => h.date) }
+    },
+    select: { entryDate: true }
+  });
+  const existingDateSet = new Set(existingEntries.map((entry) => entry.entryDate.toISOString().slice(0, 10)));
+  const missingHolidays = holidays.filter((h) => !existingDateSet.has(h.date.toISOString().slice(0, 10)));
+
+  const entries = await prisma.$transaction(missingHolidays.map((h) => prisma.timeEntry.create({
     data: {
       userId: payload.userId,
       payPeriodId: payload.payPeriodId,

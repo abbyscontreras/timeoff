@@ -20,6 +20,9 @@ app.use('/api/time-entries', timeEntryRouter);
 app.use('/api/holidays', holidayRouter);
 app.use('/api/data', importExportRouter);
 app.use('/api/balances', balanceRouter);
+app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  res.status(500).json({ error: error.message });
+});
 
 const port = Number(process.env.PORT ?? 3000);
 app.listen(port, () => {

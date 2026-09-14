@@ -67,6 +67,7 @@ timeEntryRouter.post('/daily', async (req, res) => {
           earnedYtd: deltas.earnedDelta,
           usedYtd: deltas.usedDelta,
           bankedHours: 0,
+          adjustments: 0,
           currentBalance: 0
         }
       });
@@ -121,13 +122,13 @@ timeEntryRouter.post('/convert-comp-time', async (req, res) => {
     await tx.pTOBalance.upsert({
       where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId } },
       update: { usedYtd: { increment: payload.hours } },
-      create: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId, usedYtd: payload.hours, earnedYtd: 0, bankedHours: 0, currentBalance: 0 }
+      create: { userId: payload.userId, chargeCodeId: payload.fromChargeCodeId, usedYtd: payload.hours, earnedYtd: 0, bankedHours: 0, adjustments: 0, currentBalance: 0 }
     });
 
     await tx.pTOBalance.upsert({
       where: { userId_chargeCodeId: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId } },
       update: { bankedHours: { increment: payload.hours } },
-      create: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId, usedYtd: 0, earnedYtd: 0, bankedHours: payload.hours, currentBalance: 0 }
+      create: { userId: payload.userId, chargeCodeId: payload.toChargeCodeId, usedYtd: 0, earnedYtd: 0, bankedHours: payload.hours, adjustments: 0, currentBalance: 0 }
     });
 
     const [from, to] = await Promise.all([

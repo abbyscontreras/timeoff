@@ -71,15 +71,16 @@ payPeriodRouter.get('/:id/summary', async (req, res) => {
   const chargeCodes = await prisma.chargeCode.findMany({
     where: { organizationId: tenantId, id: { in: grouped.map((g) => g.chargeCodeId) } }
   });
+  const categoryByCodeId = new Map(chargeCodes.map((code) => [code.id, code.category]));
 
   const worked = grouped.reduce((sum, g) => {
-    const code = chargeCodes.find((c) => c.id === g.chargeCodeId);
-    return code?.category === 'WORKED' ? sum + (g._sum.hoursLogged ?? 0) : sum;
+    const category = categoryByCodeId.get(g.chargeCodeId);
+    return category === 'WORKED' ? sum + (g._sum.hoursLogged ?? 0) : sum;
   }, 0);
 
   const ptoUsed = grouped.reduce((sum, g) => {
-    const code = chargeCodes.find((c) => c.id === g.chargeCodeId);
-    return code?.category === 'USED' ? sum + (g._sum.hoursLogged ?? 0) : sum;
+    const category = categoryByCodeId.get(g.chargeCodeId);
+    return category === 'USED' ? sum + (g._sum.hoursLogged ?? 0) : sum;
   }, 0);
 
   res.json({
