@@ -1,0 +1,86 @@
+import { Cadence, PayPeriodStatus } from '@prisma/client';
+import { Router } from 'express';
+import { z } from 'zod';
+import { prisma } from '../db.js';
+import { generatePayPeriods } from '../services/payPeriod.js';
+
+const generateSchema = z.object({
+  payScheduleId: z.string(),
+  cadence: z.nativeEnum(Cadence),
+  anchorDate: z.coerce.date(),
+  count: z.number().int().min(1).max(52)
+});
+
+export const payPeriodRouter = Router();
+
+payPeriodRouter.get('/', async (req, res) => {
+  const tenantId = req.tenantId!;
+  const periods = await prisma.payPeriod.findMany({ where: { organizationId: tenantId }, orderBy: { startDate: 'asc' } });
+  res.json(periods);
+});
+
+payPeriodRouter.post('/generate', async (req, res) => {
+  const tenantId = req.tenantId!;
+  const payload = generateSchema.parse(req.body);
+
+  const generated = generatePayPeriods(payload.cadence, payload.anchorDate, payload.count);
+
+  const created = await prisma.$transaction(generated.map((period) => prisma.payPeriod.upsert({
+    where: {
+      organizationId_payScheduleId_startDate_endDate: {
+        organizationId: tenantId,
+        payScheduleId: payload.payScheduleId,
+        startDate: period.startDate,
+        endDate: period.endDate
+      }
+    },
+    update: {},
+    create: {
+      organizationId: tenantId,
+      payScheduleId: payload.payScheduleId,
+      startDate: period.startDate,
+      endDate: period.endDate,
+      status: PayPeriodStatus.DRAFT
+    }
+  })));
+
+  res.status(201).json(created);
+});
+
+payPeriodRouter.get('/:id/summary', async (req, res) => {
+  const tenantId = req.tenantId!;
+  const payPeriod = await prisma.payPeriod.findFirst({ where: { id: req.params.id, organizationId: tenantId } });
+
+  if (!payPeriod) {
+    res.status(404).json({ error: 'Pay period not found' });
+    return;
+  }
+
+  const grouped = await prisma.timeEntry.groupBy({
+    by: ['chargeCodeId'],
+    where: { payPeriodId: payPeriod.id },
+    _sum: { hoursLogged: true }
+  });
+
+  const chargeCodes = await prisma.chargeCode.findMany({
+    where: { id: { in: grouped.map((g) => g.chargeCodeId) } }
+  });
+
+  const worked = grouped.reduce((sum, g) => {
+    const code = chargeCodes.find((c) => c.id === g.chargeCodeId);
+    return code?.category === 'WORKED' ? sum + (g._sum.hoursLogged ?? 0) : sum;
+  }, 0);
+
+  const ptoUsed = grouped.reduce((sum, g) => {
+    const code = chargeCodes.find((c) => c.id === g.chargeCodeId);
+    return code?.category === 'USED' ? sum + (g._sum.hoursLogged ?? 0) : sum;
+  }, 0);
+
+  res.json({
+    payPeriod,
+    totalWorkedHours: worked,
+    totalPtoUsed: ptoUsed,
+    overtimeThresholdExceeded: worked > 80,
+    status: payPeriod.status
+  });
+});
