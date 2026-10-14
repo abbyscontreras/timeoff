@@ -1,0 +1,173 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  Admin
+  Manager
+  Employee
+}
+
+enum PayCadence {
+  Weekly
+  BiWeekly
+  SemiMonthly
+  Monthly
+}
+
+enum PayPeriodStatus {
+  Draft
+  Submitted
+  Approved
+  Locked
+}
+
+enum ChargeCodeType {
+  Earned
+  Used
+  Worked
+  Adjustment
+}
+
+enum AccrualImpact {
+  adds
+  subtracts
+  neutral
+}
+
+model Organization {
+  id          String      @id @default(cuid())
+  name        String
+  subdomain   String      @unique
+  createdAt   DateTime    @default(now()) @map("created_at")
+  users       User[]
+  paySchedules PaySchedule[]
+  payPeriods  PayPeriod[]
+  chargeCodes ChargeCode[]
+  timeEntries TimeEntry[]
+  ptoBalances PTOBalance[]
+  holidays    Holiday[]
+
+  @@map("organizations")
+}
+
+model PaySchedule {
+  id             String        @id @default(cuid())
+  organizationId String        @map("organization_id")
+  cadence        PayCadence
+  users          User[]
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("pay_schedules")
+}
+
+model User {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  name           String
+  email          String
+  role           Role
+  payScheduleId  String?      @map("pay_schedule_id")
+  hireDate       DateTime     @map("hire_date")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  paySchedule    PaySchedule? @relation(fields: [payScheduleId], references: [id], onDelete: SetNull)
+  timeEntries    TimeEntry[]
+  ptoBalances    PTOBalance[]
+
+  @@unique([organizationId, email])
+  @@map("users")
+}
+
+model PayPeriod {
+  id             String          @id @default(cuid())
+  organizationId String          @map("organization_id")
+  cadence        PayCadence
+  startDate      DateTime        @map("start_date")
+  endDate        DateTime        @map("end_date")
+  status         PayPeriodStatus
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  timeEntries    TimeEntry[]
+
+  @@index([organizationId, startDate, endDate])
+  @@map("pay_periods")
+}
+
+model ChargeCode {
+  id             String         @id @default(cuid())
+  organizationId String         @map("organization_id")
+  codeKey        String         @map("code_key")
+  displayName    String         @map("display_name")
+  type           ChargeCodeType
+  isPaid         Boolean        @map("is_paid")
+  accrualImpact  AccrualImpact  @map("accrual_impact")
+  isActive       Boolean        @default(true) @map("is_active")
+  colorCode      String?        @map("color_code")
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  timeEntries    TimeEntry[]
+  ptoBalances    PTOBalance[]
+
+  @@unique([organizationId, codeKey])
+  @@map("charge_codes")
+}
+
+model TimeEntry {
+  id             String      @id @default(cuid())
+  organizationId String      @map("organization_id")
+  userId         String      @map("user_id")
+  payPeriodId    String      @map("pay_period_id")
+  entryDate      DateTime    @map("entry_date")
+  chargeCodeId   String      @map("charge_code_id")
+  hoursLogged    Float       @map("hours_logged")
+  notes          String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payPeriod      PayPeriod    @relation(fields: [payPeriodId], references: [id], onDelete: Cascade)
+  chargeCode     ChargeCode   @relation(fields: [chargeCodeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, payPeriodId, entryDate, chargeCodeId])
+  @@map("time_entries")
+}
+
+model PTOBalance {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  userId         String       @map("user_id")
+  chargeCodeId   String       @map("charge_code_id")
+  earnedYtd      Float        @default(0) @map("earned_ytd")
+  usedYtd        Float        @default(0) @map("used_ytd")
+  bankedHours    Float        @default(0) @map("banked_hours")
+  currentBalance Float        @default(0) @map("current_balance")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chargeCode     ChargeCode   @relation(fields: [chargeCodeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, chargeCodeId])
+  @@map("pto_balances")
+}
+
+model Holiday {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  name           String
+  date           DateTime
+  isFloating     Boolean      @default(false) @map("is_floating")
+  year           Int
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name, date])
+  @@map("holidays")
+}

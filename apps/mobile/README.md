@@ -1,7 +1,3 @@
-# Mobile Client Scaffold
+# @timeoff/mobile
 
-This folder contains a lightweight React Native/Flutter-compatible API adapter pattern for:
-- daily card-style entry submission
-- tenant-aware API calls
-
-Wire these utilities into mobile screens/components.
+Expo React Native foundation for cross-platform time entry flows.

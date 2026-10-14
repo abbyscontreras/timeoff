@@ -11,7 +11,11 @@
     "lint": "tsc --noEmit -p tsconfig.json",
     "seed": "tsx prisma/seed.ts",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev --name init"
+    "db:migrate": "prisma migrate dev --name init",
+    "dev:turbo": "turbo run dev --parallel",
+    "build:turbo": "turbo run build",
+    "lint:turbo": "turbo run lint",
+    "test:turbo": "turbo run test"
   },
   "repository": {
     "type": "git",
@@ -37,10 +41,16 @@
     "prisma": "^6.16.3",
     "supertest": "^7.2.2",
     "tsx": "^4.20.6",
+    "turbo": "^2.1.1",
     "typescript": "^5.9.2",
     "vitest": "4.1.0"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
-  }
+  },
+  "private": "true",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
 }

@@ -1,48 +1,63 @@
-# Timeoff (Node.js Implementation)
+# Timeoff Monorepo Foundation
 
-Multi-tenant Time & PTO tracking backend in Node.js/TypeScript with:
-- tenant-scoped charge code management
-- configurable pay period generation
-- daily split time-entry submission with validation
-- accrual/usage/banked dual-ledger balances
-- holiday configuration and auto-population
-- CSV/XLSX import and payroll XLSX export
+This repository now includes a Turborepo-style multi-platform foundation for a multi-tenant Time & PTO Tracking Application.
 
-## Quick start
+## Monorepo Layout
 
-```bash
-cp .env.example .env
-npm install
-npx prisma generate
-npx prisma migrate dev --name init
-npm run seed
-npm run dev
-```
+- `/apps/web` — Next.js (App Router) dashboard and API route foundation
+- `/apps/mobile` — Expo React Native mobile foundation
+- `/packages/db` — Prisma schema/client package, migration/seed runners
+- `/packages/shared-types` — shared TypeScript interfaces and Zod schemas
+- `/src` — existing Express prototype (kept for backward compatibility)
 
-## Tenant header
+## Root Workspace Commands
 
-All `/api/*` endpoints require:
+- `npm run dev:turbo`
+- `npm run build:turbo`
+- `npm run lint:turbo`
+- `npm run test:turbo`
 
-`x-tenant-id: <organization-id>`
+## Multi-Tenant Data Model (packages/db)
 
-## Core endpoints
+Implemented with `organization_id` scoping and foreign-key relations across:
 
-- `GET/POST/PATCH /api/charge-codes`
-- `GET /api/pay-periods`
-- `POST /api/pay-periods/generate`
-- `GET /api/pay-periods/:id/summary`
-- `POST /api/time-entries/daily`
-- `POST /api/time-entries/convert-comp-time`
-- `GET /api/balances/user/:userId`
-- `GET/POST /api/holidays`
-- `POST /api/holidays/autopopulate`
-- `POST /api/data/import`
-- `GET /api/data/export/pay-period/:payPeriodId`
+- organizations
+- users
+- pay_periods
+- charge_codes
+- time_entries
+- pto_balances
+- holidays
 
-## Testing
+Additional support model:
 
-```bash
-npm run lint
-npm test
-npm run build
-```
+- pay_schedules
+
+## Auth and RBAC Foundation (apps/web)
+
+JWT middleware validates tenant claims and role:
+
+- required claim: `organization_id`
+- roles: `Admin`, `Manager`, `Employee`
+
+Role routing policy implemented in API route scaffolds:
+
+- Admins: charge code management routes
+- Managers/Admins: pay period approval routes
+- Employees/Managers/Admins: daily time entry submit routes
+
+## Seed Data (packages/db/prisma/seed.ts)
+
+Seed script includes:
+
+- default charge codes: Regular Worked, PTO, Sick Leave, Banked Comp Time
+- sample holiday calendar
+
+## Package-Level DB Commands
+
+From `packages/db`:
+
+- `npm run db:generate`
+- `npm run db:migrate`
+- `npm run db:deploy`
+- `npm run db:seed`
